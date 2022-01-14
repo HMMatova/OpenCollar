@@ -62,12 +62,13 @@ string g_sParentMenu = "Apps";
 string g_sApp = "Coco";
 string g_s = "|";
 integer g_iMenuStride=3;
-list g_lButtons = ["Purse"];
+// list g_lButtons = ["Purse"];
 list g_lCheckboxes = ["☒", "☐", "☑"];
 key g_kWearer;
 list g_lMenuIDs;
 integer g_InitialSettingsLoaded = FALSE;
 list g_lCommands = [];
+list g_lNearbyAgents;
 
 // inventory
 list g_lItemNames =  ["phone",  "keys",     "glasses", "cards"  ];
@@ -84,6 +85,10 @@ string setS(integer condition, string sTrue, string sFalse) {
 integer setI(integer condition, integer iTrue, integer iFalse) {
     if (condition)  return iTrue;
     else            return iFalse;
+}
+
+integer isNearby(key agent) {
+    return setI(~llListFindList(g_lNearbyAgents, [agent]), TRUE, FALSE);
 }
 
 string makeItemButton(string label, integer status, key user) {
@@ -145,8 +150,8 @@ UpdateRestrictions() {
     string phoneAllowed         = "recvim=y,sendim=y,startim=y";
     string keysRestricted       = "tplm=n,tplocal=n,tploc=n,tplure_sec=n,sittp:5=n,standtp=n";
     string keysAllowed          = "tplm=y,tplocal=y,tploc=y,tplure_sec=y,sittp:5=y,standtp=y";
-    string glassesRestricted    = "showhovertext=n,shownames=n,showloc=n,showminimap=n,showworldmap=n";
-    string glassesAllowed       = "showhovertext=y,shownames=y,showloc=y,showminimap=y,showworldmap=y";
+    string glassesRestricted    = "setenv=n,setdebug_renderresolutiondivisor:4=force,showhovertext=n,shownames=n,showloc=n,showminimap=n,showworldmap=n";
+    string glassesAllowed       = "setenv=y,setdebug_renderresolutiondivisor:0=force,showhovertext=y,shownames=y,showloc=y,showminimap=y,showworldmap=y";
     string cardsRestricted      = "";
     string cardsAllowed         = "";
     integer i;
@@ -203,10 +208,12 @@ Dialog(key kID, string sPrompt, list lChoices, list lUtilityButtons, integer iPa
 }
 
 DialogMain(key kID, integer iAuth) {
-    list buttons = g_lButtons;
+    list buttons;
     string prompt = g_sApp + " main menu";
 
-    if (iAuth == CMD_WEARER) buttons += ["Settings"];
+    if (iAuth == CMD_WEARER)    buttons = ["Purse", "Settings"];
+    else if (isNearby(kID))     buttons = ["Purse"];
+    else                        buttons = [];
 
     Dialog(kID, prompt, buttons, ["Help!", UPMENU], 0, iAuth, g_sApp);
 }
@@ -234,6 +241,8 @@ DialogPurse(key kID, integer iAuth) {
     string prompt;
     string legend;
     list buttons = makePurseButtons(kID);
+
+    if (!(iAuth == CMD_WEARER || isNearby(kID))) return;
 
     if (iAuth == CMD_WEARER) {
         prompt = "This is your purse's content";
@@ -275,6 +284,19 @@ DialogPurseItem(key kID, integer iAuth, string message) {
     Dialog(kID, prompt, buttons, ["Help!", UPMENU], 0, iAuth, "item" + g_s + item);
 }
 
+DialogAgents(key kID, integer iAuth, string prev) {
+    list buttons;
+    integer index;
+    string prompt = "Choose one";
+
+    for (index = 0; index < llGetListLength(g_lNearbyAgents); index++)
+    {
+        buttons += (string)index + " " + llGetUsername(llList2Key(g_lNearbyAgents, index));
+    }
+
+    Dialog(kID, prompt, buttons, [UPMENU], 0, iAuth, prev);
+}
+
 ////////// Commands //////////
 
 UserCommand(integer iAuth, string sStr, key kID, integer remenu) {
@@ -300,7 +322,7 @@ UserCommand(integer iAuth, string sStr, key kID, integer remenu) {
     else if (menu == "settings-change") {
         UpdateItemStatus(getButtonLabel(item), 1, kID);
     }
-    else {
+    else if (iAuth == CMD_WEARER || isNearby(kID)) {
         if (action == "pick") {
             // llOwnerSay("Your " + item + " has been stolen!");
             llRegionSayTo(kID, 0, "You successfully slipped your hand and took the " + item + "!");
@@ -312,8 +334,14 @@ UserCommand(integer iAuth, string sStr, key kID, integer remenu) {
             UpdateItemStatus(item, 2, kID);
         }
         else if (action == "give away") {
+            return DialogAgents(kID, iAuth, "give" + g_s + item);
+        }
+        else if (menu == "give") {
+            integer index = llList2Integer(llParseString2List(action, [" "], []), 4);
+            key recipient = llList2Key(g_lNearbyAgents, index);
+
+            UpdateItemStatus(item, 2, recipient);
             llOwnerSay("You gave your " + item + " away.");
-            UpdateItemStatus(item, 2, kID);
         }
         else if (action == "recover") {
             llOwnerSay("You got your " + item + " back.");
@@ -347,6 +375,7 @@ default {
     state_entry()
     {
         g_kWearer = llGetOwner();
+        llSensorRepeat("", NULL_KEY, AGENT, 5, PI, 20);
     }
 
     link_message( integer iSender, integer iNum, string sStr, key kID )
@@ -414,6 +443,8 @@ default {
 
                 else if (llSubStringIndex(sMenu, "item") == 0) UserCommand(iAuth , sMenu + g_s + sMsg, kAv, TRUE);
 
+                else if (llSubStringIndex(sMenu, "give") == 0) UserCommand(iAuth, sMenu + g_s + sMsg, kAv, TRUE);
+
                 else {
                     llOwnerSay("not found: " + sMenu + ", " + sMsg);
                 }
@@ -422,6 +453,26 @@ default {
         }
 
         else if (iNum == REBOOT && sStr == "reboot") llResetScript();
+    }
+
+    sensor( integer iDetected )
+    {
+        g_lNearbyAgents = [];
+
+        while (iDetected--)
+        {
+            g_lNearbyAgents += llDetectedOwner(iDetected);
+        }
+    }
+
+    no_sensor()
+    {
+        g_lNearbyAgents = [];
+    }
+
+    state_exit()
+    {
+        llSensorRemove();
     }
 }
 
