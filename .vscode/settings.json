@@ -1,0 +1,12 @@
+{
+    "files.trimTrailingWhitespace": true,
+    "emeraldwalk.runonsave": {
+        "commands": [
+            {
+                "match": "\\.lsl$",
+                "isAsync": true,
+                "cmd": "docker run -t -v `pwd`:`pwd` lslint linter/lslint ${file}"
+            }
+        ]
+    }
+}
