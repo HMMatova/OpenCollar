@@ -70,29 +70,28 @@ integer g_InitialSettingsLoaded = FALSE;
 list g_lCommands = [];
 
 // inventory
-list g_lItemNames = ["phone", "keys", "glasses", "cards"];
-list g_lItemStatus = [3, 3, 7, 2];
-list g_lItemOwners = [NULL_KEY, NULL_KEY, NULL_KEY];
+list g_lItemNames =  ["phone",  "keys",     "glasses", "cards"  ];
+list g_lItemStatus = [ 3,        3,          7,         2       ];
+list g_lItemOwners = [NULL_KEY,  NULL_KEY,  NULL_KEY,  NULL_KEY ];
+
+////////// Helpers //////////
+
+string setS(integer condition, string sTrue, string sFalse) {
+    if (condition)  return sTrue;
+    else            return sFalse;
+}
+
+integer setI(integer condition, integer iTrue, integer iFalse) {
+    if (condition)  return iTrue;
+    else            return iFalse;
+}
 
 string makeItemButton(string label, integer status, key user) {
     integer i;
 
-    if (user == g_kWearer) {
-        if (status &2) {
-            if (status &4) i = 2;
-            else i = 1;
-        }
-        else i = 0;
-    }
-    else {
-        if (status &2) {
-            i = 1;
-        }
-        else {
-            if (status &8) i = 2;
-            else i = 0;
-        }
-    }
+    if (user == g_kWearer)  i = setI(status &2, setI(status &4, 2, 1), 0);
+    else                    i = setI(status &2, 1, setI(status &8, 2, 1));
+
     return llList2String(g_lCheckboxes, i) + " " + label;
 }
 
@@ -114,8 +113,8 @@ list makePurseButtons(key user) {
                 items += makeItemButton(name, status, user);
             }
             else {
-                if (status &2) items += makeItemButton(name, status, user);
-                else if (user == storedOwner) items += makeItemButton(name, status|8, user);
+                if (status &2)                  items += makeItemButton(name, status, user);
+                else if (user == storedOwner)   items += makeItemButton(name, status|8, user);
             }
         }
     }
@@ -161,22 +160,10 @@ UpdateRestrictions() {
         status = llList2Integer(g_lItemStatus, i);
 
         if (status &1) {
-            if (item == "phone") {
-                if (status &2) g_lCommands += phoneAllowed;
-                else g_lCommands += phoneRestricted;
-            }
-            else if (item == "keys") {
-                if (status &2) g_lCommands += keysAllowed;
-                else g_lCommands += keysRestricted;
-            }
-            else if (item == "glasses") {
-                if (status &2) g_lCommands += glassesAllowed;
-                else g_lCommands += glassesRestricted;
-            }
-            else if (item == "cards") {
-                if (status &2) g_lCommands += cardsAllowed;
-                else g_lCommands += cardsRestricted;
-            }
+            if (item == "phone")        g_lCommands += setS(status &2, phoneAllowed, phoneRestricted);
+            else if (item == "keys")    g_lCommands += setS(status &2, keysAllowed, keysRestricted);
+            else if (item == "glasses") g_lCommands += setS(status &2, glassesAllowed, glassesRestricted);
+            else if (item == "cards")   g_lCommands += setS(status &2, cardsAllowed, cardsRestricted);
             else llOwnerSay("Item " + item + " not found.");
         }
     }
@@ -200,7 +187,7 @@ UpdateMenuIDs(key userId, key menuId, string name) {
     integer index = llListFindList(g_lMenuIDs, [userId]);
 
     if (~index) g_lMenuIDs = llListReplaceList(g_lMenuIDs, record, index, index + g_iMenuStride - 1);
-    else g_lMenuIDs += record;
+    else        g_lMenuIDs += record;
 }
 
 ////////// Dialog methods //////////
@@ -236,10 +223,7 @@ DialogSettings(key kID, integer iAuth) {
     {
         label = llList2String(g_lItemNames, i);
         status = llList2Integer(g_lItemStatus, i);
-
-        if (status &1) icon = llList2String(g_lCheckboxes, 2);
-        else icon = llList2String(g_lCheckboxes, 1);
-
+        icon = llList2String(g_lCheckboxes, setI(status &1, 2, 1));
         buttons += icon + " " + label;
     }
 
