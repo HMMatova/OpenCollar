@@ -40,7 +40,7 @@ integer LM_SETTING_SAVE = 2000;
 // integer LM_SETTING_REQUEST = 2001;
 integer LM_SETTING_RESPONSE = 2002;
 // integer LM_SETTING_DELETE = 2003;
-// integer LM_SETTING_EMPTY = 2004;
+integer LM_SETTING_EMPTY = 2004;
 
 integer MENUNAME_REQUEST = 3000;
 integer MENUNAME_RESPONSE = 3001;
@@ -69,6 +69,7 @@ list g_lMenuIDs;
 integer g_InitialSettingsLoaded = FALSE;
 list g_lCommands = [];
 list g_lNearbyAgents;
+integer g_isLocked = FALSE;
 
 // inventory
 list g_lItemNames =  ["phone",  "keys",     "glasses", "cards"  ];
@@ -98,6 +99,18 @@ string makeItemButton(string label, integer status, key user) {
     else                    i = setI(status &2, 1, setI(status &8, 2, 1));
 
     return llList2String(g_lCheckboxes, i) + " " + label;
+}
+
+integer checkWearer(key agent) {
+    return setI(agent == g_kWearer, 1, 0);
+}
+
+integer locked(key agent) {
+    return setI(g_isLocked && checkWearer(agent), 1, 0);
+}
+
+integer unlocked(key agent) {
+    return !locked(agent);
 }
 
 list makePurseButtons(key user) {
@@ -219,6 +232,8 @@ DialogMain(key kID, integer iAuth) {
 }
 
 DialogSettings(key kID, integer iAuth) {
+    if (locked(kID)) return llOwnerSay("You are not allowed to change settings while locked.");
+
     list buttons;
     string label;
     integer status;
@@ -271,7 +286,6 @@ DialogPurseItem(key kID, integer iAuth, string message) {
             else buttons += "Use";
         }
         else buttons += ["Search", "Recover"];
-
     }
     else {
         if (status &2) {
@@ -300,7 +314,7 @@ DialogAgents(key kID, integer iAuth, string prev) {
 ////////// Commands //////////
 
 UserCommand(integer iAuth, string sStr, key kID, integer remenu) {
-    llOwnerSay("UserCommand: " + (string)iAuth + ", " + sStr + ", " + (string)kID);
+    // llOwnerSay("UserCommand: " + (string)iAuth + ", " + sStr + ", " + (string)kID);
     if (iAuth > CMD_WEARER || iAuth < CMD_OWNER) return; // sanity check
 
     string sCmd = llToLower(sStr);
@@ -314,6 +328,8 @@ UserCommand(integer iAuth, string sStr, key kID, integer remenu) {
         DialogMain(kID, iAuth);
     }
     else if (sCmd == sApp + " mem") llOwnerSay("memory used: " + (string)llGetUsedMemory());
+
+    else if (sCmd == sApp + " debug") Debug();
 
     else if (sCmd == sApp + " purse") DialogPurse(kID, iAuth);
 
@@ -343,7 +359,7 @@ UserCommand(integer iAuth, string sStr, key kID, integer remenu) {
             UpdateItemStatus(item, 2, recipient);
             llOwnerSay("You gave your " + item + " away.");
         }
-        else if (action == "recover") {
+        else if (action == "recover" && unlocked(kID)) {
             llOwnerSay("You got your " + item + " back.");
             UpdateItemStatus(item, 2, NULL_KEY);
         }
@@ -369,6 +385,14 @@ UserCommand(integer iAuth, string sStr, key kID, integer remenu) {
     }
 }
 
+Debug() {
+    llOwnerSay("g_isLocked: " + (string)g_isLocked);
+    llOwnerSay("g_lItemNames: " + llList2CSV(g_lItemNames));
+    llOwnerSay("g_lItemStatus: " + llList2CSV(g_lItemStatus));
+    llOwnerSay("g_lItemOwners: " + llList2CSV(g_lItemOwners));
+    llOwnerSay("g_lNearbyAgents: " + llList2CSV(g_lNearbyAgents));
+}
+
 /////////////////////////////////////////////////////////////////////////////////////////
 
 default {
@@ -384,22 +408,33 @@ default {
 
         else if (iNum == LM_SETTING_RESPONSE) {
             // llOwnerSay("link_message :" + (string)iSender + ", " + (string)iNum + ", " + sStr + ", " + (string)kID);
+            list parts = llParseString2List(sStr, ["_", "="], []);
+
             if (!g_InitialSettingsLoaded) {
                 g_InitialSettingsLoaded = TRUE;
-                list parts = llParseString2List(sStr, ["_", "="], []);
 
                 if (llList2String(parts, 0) == llToLower(g_sApp)) {
                     if (llList2String(parts, 1) == "names") {
-                        g_lItemNames = llParseString2List(llList2String(parts, 3), [g_s], []);
+                        // g_lItemNames = llParseString2List(llList2String(parts, 3), [g_s], []);
                     }
                     else if (llList2String(parts, 1) == "status") {
-                        g_lItemStatus = llParseString2List(llList2String(parts, 3), [g_s], []);
+                        // g_lItemStatus = llParseString2List(llList2String(parts, 3), [g_s], []);
                     }
                     else if (llList2String(parts, 1) == "owners") {
-                        g_lItemOwners = llParseString2List(llList2String(parts, 3), [g_s], []);
+                        // g_lItemOwners = llParseString2List(llList2String(parts, 3), [g_s], []);
                     }
                 }
             }
+
+            if (llList2String(parts, 0) == "global") {
+                if (llList2String(parts, 1) == "locked") {
+                    g_isLocked = (integer)llList2String(parts, 2);
+                }
+            }
+        }
+
+        else if (iNum == LM_SETTING_EMPTY) {
+            if (sStr == "global_locked") g_isLocked = FALSE;
         }
 
         else if (iNum == MENUNAME_REQUEST && sStr == g_sParentMenu) {
