@@ -48,6 +48,7 @@ integer MENUNAME_RESPONSE = 3001;
 
 integer RLV_CMD = 6000;
 // integer RLV_CLEAR = 6002;
+integer RLV_AUX = 60013;
 
 integer DIALOG = -9000;
 integer DIALOG_RESPONSE = -9001;
@@ -189,12 +190,23 @@ UpdateRestrictions() {
     llMessageLinked(LINK_THIS, RLV_CMD, llDumpList2String(g_lCommands, ","), g_sApp);
 }
 
+UpdateItemVisibility(string item, integer status) {
+    string command = setS(status &4, "attachover", "detachall");
+
+    string statement = command + ":~" + g_sApp + "/purse/" + item + "=force";
+
+    llMessageLinked(LINK_THIS, RLV_CMD, statement, g_sApp);
+}
+
 UpdateItemStatus(string item, integer change, key owner) {
         integer index = llListFindList(g_lItemNames, [item]);
         integer status = llList2Integer(g_lItemStatus, index);
+        integer nextStatus = status^change;
 
-        g_lItemStatus = llListReplaceList(g_lItemStatus, [status^change], index, index);
+        g_lItemStatus = llListReplaceList(g_lItemStatus, [nextStatus], index, index);
         g_lItemOwners = llListReplaceList(g_lItemOwners, [owner], index, index);
+
+        UpdateItemVisibility(item, nextStatus);
 
         UpdateSettings();
         UpdateRestrictions();
@@ -223,8 +235,7 @@ Dialog(key kID, string sPrompt, list lChoices, list lUtilityButtons, integer iPa
 DialogMain(key kID, integer iAuth) {
     list buttons;
     string prompt = g_sApp + " main menu";
-
-    if (iAuth == CMD_WEARER)    buttons = ["Purse", "Settings"];
+    if (g_kWearer == kID)       buttons = ["Purse", "Settings"];
     else if (isNearby(kID))     buttons = ["Purse"];
     else                        buttons = [];
 
@@ -257,9 +268,9 @@ DialogPurse(key kID, integer iAuth) {
     string legend;
     list buttons = makePurseButtons(kID);
 
-    if (!(iAuth == CMD_WEARER || isNearby(kID))) return;
+    if (!(g_kWearer == kID || isNearby(kID))) return;
 
-    if (iAuth == CMD_WEARER) {
+    if (g_kWearer == kID) {
         prompt = "This is your purse's content";
         legend = "\n☒ Missing\n☐ Kept\n☑ Using";
     }
@@ -278,7 +289,7 @@ DialogPurseItem(key kID, integer iAuth, string message) {
     integer status = llList2Integer(g_lItemStatus, index);
     string prompt = "What do you want to do with the " + item + "?";
 
-    if (iAuth == CMD_WEARER) {
+    if (g_kWearer == kID) {
         if (status &2) {
             buttons += "Give away";
 
@@ -338,7 +349,7 @@ UserCommand(integer iAuth, string sStr, key kID, integer remenu) {
     else if (menu == "settings-change") {
         UpdateItemStatus(getButtonLabel(item), 1, kID);
     }
-    else if (iAuth == CMD_WEARER || isNearby(kID)) {
+    else if (g_kWearer == kID || isNearby(kID)) {
         if (action == "pick") {
             // llOwnerSay("Your " + item + " has been stolen!");
             llRegionSayTo(kID, 0, "You successfully slipped your hand and took the " + item + "!");
@@ -400,6 +411,9 @@ default {
     {
         g_kWearer = llGetOwner();
         llSensorRepeat("", NULL_KEY, AGENT, 5, PI, 20);
+
+        llListen(RLV_AUX, "", g_kWearer, "");
+        llOwnerSay("@getinv:~" + g_sApp + "/purse=" + (string)RLV_AUX);
     }
 
     link_message( integer iSender, integer iNum, string sStr, key kID )
@@ -413,17 +427,17 @@ default {
             if (!g_InitialSettingsLoaded) {
                 g_InitialSettingsLoaded = TRUE;
 
-                if (llList2String(parts, 0) == llToLower(g_sApp)) {
-                    if (llList2String(parts, 1) == "names") {
-                        // g_lItemNames = llParseString2List(llList2String(parts, 3), [g_s], []);
-                    }
-                    else if (llList2String(parts, 1) == "status") {
-                        // g_lItemStatus = llParseString2List(llList2String(parts, 3), [g_s], []);
-                    }
-                    else if (llList2String(parts, 1) == "owners") {
-                        // g_lItemOwners = llParseString2List(llList2String(parts, 3), [g_s], []);
-                    }
-                }
+                // if (llList2String(parts, 0) == llToLower(g_sApp)) {
+                //     if (llList2String(parts, 1) == "names") {
+                //         g_lItemNames = llParseString2List(llList2String(parts, 3), [g_s], []);
+                //     }
+                //     else if (llList2String(parts, 1) == "status") {
+                //         g_lItemStatus = llParseString2List(llList2String(parts, 3), [g_s], []);
+                //     }
+                //     else if (llList2String(parts, 1) == "owners") {
+                //         g_lItemOwners = llParseString2List(llList2String(parts, 3), [g_s], []);
+                //     }
+                // }
             }
 
             if (llList2String(parts, 0) == "global") {
@@ -490,6 +504,26 @@ default {
         else if (iNum == REBOOT && sStr == "reboot") llResetScript();
     }
 
+    listen( integer iChannel, string sName, key kID, string sMessage )
+    {
+        if (iChannel == RLV_AUX) {
+            list items = llParseString2List(sMessage, [","], []);
+            integer i;
+            string name;
+
+            for (i = 0; i < llGetListLength(g_lItemNames); i++)
+            {
+                name = llList2String(g_lItemNames, i);
+
+                if (!~llListFindList(items, [name])) {
+                    if (llGetInventoryType(name) == INVENTORY_OBJECT) {
+                        llGiveInventoryList(g_kWearer, "#RLV/~coco/purse/" + name, [name]);
+                    }
+                }
+            }
+        }
+    }
+
     sensor( integer iDetected )
     {
         g_lNearbyAgents = [];
@@ -505,9 +539,9 @@ default {
         g_lNearbyAgents = [];
     }
 
+
     state_exit()
     {
         llSensorRemove();
     }
 }
-
