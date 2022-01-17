@@ -180,9 +180,9 @@ UpdateRestrictions() {
         status = llList2Integer(g_lItemStatus, i);
 
         if (status &1) {
-            if (item == "phone")        g_lCommands += setS(status &2, phoneAllowed, phoneRestricted);
+            if (item == "phone")        g_lCommands += setS(status &2 && status &4, phoneAllowed, phoneRestricted);
             else if (item == "keys")    g_lCommands += setS(status &2, keysAllowed, keysRestricted);
-            else if (item == "glasses") g_lCommands += setS(status &2, glassesAllowed, glassesRestricted);
+            else if (item == "glasses") g_lCommands += setS(status &2 && status &4, glassesAllowed, glassesRestricted);
             else if (item == "cards")   g_lCommands += setS(status &2, cardsAllowed, cardsRestricted);
             else llOwnerSay("Item " + item + " not found.");
         }
@@ -410,6 +410,11 @@ ReconcileInventoryItems(list fetchedItems) {
                 llGiveInventoryList(g_kWearer, "#RLV/~coco/" + name, [name]);
             }
         }
+        else {
+            integer status = llList2Integer(g_lItemStatus, llListFindList(g_lItemNames, [name]));
+
+            UpdateItemVisibility(name, setI(name == "purse", 7, status));
+        }
     }
 }
 
@@ -433,6 +438,8 @@ default {
         llListen(RLV_NOTIFY, "", g_kWearer, "");
         llOwnerSay("@notify:" + (string)RLV_NOTIFY + ";inv_offer=add");
         llOwnerSay("@getinv:~" + g_sApp + "=" +(string)RLV_AUX);
+        llSleep(1.0);
+        UpdateRestrictions();
     }
 
     link_message( integer iSender, integer iNum, string sStr, key kID )
