@@ -49,6 +49,7 @@ integer MENUNAME_RESPONSE = 3001;
 integer RLV_CMD = 6000;
 // integer RLV_CLEAR = 6002;
 integer RLV_AUX = 60013;
+integer RLV_NOTIFY = 60014;
 
 integer DIALOG = -9000;
 integer DIALOG_RESPONSE = -9001;
@@ -192,8 +193,7 @@ UpdateRestrictions() {
 
 UpdateItemVisibility(string item, integer status) {
     string command = setS(status &4, "attachover", "detachall");
-
-    string statement = command + ":~" + g_sApp + "/purse/" + item + "=force";
+    string statement = command + ":~" + g_sApp + "/" + item + "=force";
 
     llMessageLinked(LINK_THIS, RLV_CMD, statement, g_sApp);
 }
@@ -396,6 +396,23 @@ UserCommand(integer iAuth, string sStr, key kID, integer remenu) {
     }
 }
 
+ReconcileInventoryItems(list fetchedItems) {
+    list items = ["purse"] + g_lItemNames;
+    string name;
+    integer i;
+
+    for (i = 0; i < llGetListLength(items); i++)
+    {
+        name = llList2String(items, i);
+
+        if (!~llListFindList(fetchedItems, [name])) {
+            if (llGetInventoryType(name) == INVENTORY_OBJECT) {
+                llGiveInventoryList(g_kWearer, "#RLV/~coco/" + name, [name]);
+            }
+        }
+    }
+}
+
 Debug() {
     llOwnerSay("g_isLocked: " + (string)g_isLocked);
     llOwnerSay("g_lItemNames: " + llList2CSV(g_lItemNames));
@@ -413,7 +430,9 @@ default {
         llSensorRepeat("", NULL_KEY, AGENT, 5, PI, 20);
 
         llListen(RLV_AUX, "", g_kWearer, "");
-        llOwnerSay("@getinv:~" + g_sApp + "/purse=" + (string)RLV_AUX);
+        llListen(RLV_NOTIFY, "", g_kWearer, "");
+        llOwnerSay("@notify:" + (string)RLV_NOTIFY + ";inv_offer=add");
+        llOwnerSay("@getinv:~" + g_sApp + "=" +(string)RLV_AUX);
     }
 
     link_message( integer iSender, integer iNum, string sStr, key kID )
@@ -508,18 +527,27 @@ default {
     {
         if (iChannel == RLV_AUX) {
             list items = llParseString2List(sMessage, [","], []);
-            integer i;
-            string name;
 
-            for (i = 0; i < llGetListLength(g_lItemNames); i++)
-            {
-                name = llList2String(g_lItemNames, i);
+            ReconcileInventoryItems(items);
+        }
 
-                if (!~llListFindList(items, [name])) {
-                    if (llGetInventoryType(name) == INVENTORY_OBJECT) {
-                        llGiveInventoryList(g_kWearer, "#RLV/~coco/purse/" + name, [name]);
-                    }
+        if (iChannel == RLV_NOTIFY) {
+            // llOwnerSay("rlv notify: " + sMessage);
+            string item = llList2String(llParseString2List(sMessage, [" ", "/"], []), -1);
+
+            if (~llSubStringIndex(sMessage, "/accepted_in_rlv inv_offer")) {
+                if (item == "purse") {
+                    UpdateItemVisibility(item, 7);
                 }
+                else {
+                    integer status = llList2Integer(g_lItemStatus, llListFindList(g_lItemNames, [item]));
+
+                    UpdateItemVisibility(item, status);
+                }
+
+            }
+            else if (~llSubStringIndex(sMessage, "/declined inv_offer")) {
+                llOwnerSay("You didn't accept the " + item);
             }
         }
     }
