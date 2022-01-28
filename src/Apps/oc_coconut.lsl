@@ -73,6 +73,9 @@ list g_lCommands = [];
 list g_lNearbyAgents;
 integer g_isLocked = FALSE;
 
+list g_queue;
+integer g_queueStride = 4;
+
 // inventory
 list g_lItemNames =  ["phone",  "keys",     "glasses", "cards"  ];
 list g_lItemStatus = [ 3,        3,          7,         2       ];
@@ -432,7 +435,6 @@ default {
     state_entry()
     {
         g_kWearer = llGetOwner();
-        llSensorRepeat("", NULL_KEY, AGENT, 5, PI, 20);
 
         llListen(RLV_AUX, "", g_kWearer, "");
         llListen(RLV_NOTIFY, "", g_kWearer, "");
@@ -440,6 +442,9 @@ default {
         llOwnerSay("@getinv:~" + g_sApp + "=" +(string)RLV_AUX);
         llSleep(1.0);
         UpdateRestrictions();
+        llSetTimerEvent(1.0);
+        g_queue += ["scan-wardrobe", 0, llGetUnixTime() + 5, ""];
+        g_queue += ["scan-people", 0, llGetUnixTime() + 10, ""];
     }
 
     link_message( integer iSender, integer iNum, string sStr, key kID )
@@ -561,17 +566,75 @@ default {
 
     sensor( integer iDetected )
     {
-        g_lNearbyAgents = [];
+        if (~llListFindList(g_queue, ["scanning-wardrobe"])) {
+            if (llDetectedName(0) == "Dutch cabinet") {
+                llOwnerSay("Close to your wardrobe");
+                llMessageLinked(LINK_THIS, RLV_CMD, "showinv=y", g_sApp);
+            }
 
-        while (iDetected--)
-        {
-            g_lNearbyAgents += llDetectedOwner(iDetected);
+        }
+        else if (~llListFindList(g_queue, ["scanning-people"])) {
+            g_lNearbyAgents = [];
+
+            while (iDetected--)
+            {
+                if (llDetectedType(iDetected) & AGENT) g_lNearbyAgents += llDetectedOwner(iDetected);
+            }
         }
     }
 
     no_sensor()
     {
-        g_lNearbyAgents = [];
+        if (~llListFindList(g_queue, ["scanning-wardrobe"])) {
+            llOwnerSay("You are far from your wardrobe");
+            llMessageLinked(LINK_THIS, RLV_CMD, "showinv=n", g_sApp);
+        }
+        else if (~llListFindList(g_queue, ["scanning-people"])) {
+            g_lNearbyAgents = [];
+        }
+    }
+
+    timer()
+    {
+        integer stride = g_queueStride;
+        integer now = llGetUnixTime();
+        string order;
+        integer handler;
+        integer index;
+        // key menuId;
+        integer i;
+        integer timeout;
+        string payload;
+
+        list orders = llList2ListStrided(g_queue, 0, -1, stride);
+
+        integer numOrders = llGetListLength(orders);
+
+        if (!numOrders) return;
+
+        for (i = 0; i < numOrders; i++)
+        {
+            index = i * stride;
+            order = llList2String(orders, index);
+            handler = llList2Integer(g_queue, index + 1);
+            timeout = llList2Integer(g_queue, index + 2);
+            payload = llList2String(g_queue, index + 3);
+
+            if (now >= timeout) {
+                g_queue = llDeleteSubList(g_queue, index, index + stride - 1);
+
+                if (order == "scan-wardrobe") {
+                    llSensor("Dutch cabinet", NULL_KEY, PASSIVE, 4, PI);
+                    g_queue += ["scanning-wardrobe", 0, now + 2, ""];
+                    g_queue += ["scan-wardrobe", 0, now + 60, ""];
+                }
+                if (order == "scan-people") {
+                    llSensor("", NULL_KEY, AGENT, 5, PI);
+                    g_queue += ["scanning-people", 0, now + 2, ""];
+                    g_queue += ["scan-people", 0, now + 10, ""];
+                }
+            }
+        }
     }
 
 
